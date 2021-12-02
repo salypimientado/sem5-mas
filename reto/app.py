@@ -198,12 +198,12 @@ class carAgent(Agent):
                 if not self.done:
                     self.model.kill_agents.append(self)
                 self.done = True
-                self.model.instructions.append({"id":self.id, "instruction":"destroy"})
+                self.model.instructions.append({"id":self.id, "method":"destroy"})
             else:
                 if self.steps_until_turn == 0:
-                    self.model.instructions.append({"id":self.id, "instruction": f'advance-rotate-{direction_to_string(self.turn_direction)}'})
+                    self.model.instructions.append({"id":self.id, "method": f'advance-rotate', "params":direction_to_string(self.turn_direction)})
                 else:
-                    self.model.instructions.append({"id":self.id, "instruction": "advance"})
+                    self.model.instructions.append({"id":self.id, "method": "advance"})
                 
         
     def advance(self):
@@ -229,7 +229,7 @@ class trafficLight(Agent):
 
     def setRed(self):
         self.state = states.RED
-        self.model.instructions.append({"id":self.id, "instruction": f'set-light-RED'})
+        self.model.instructions.append({"id":self.id, "method": f'set-light', "params":'RED'})
         self.blocked_steps = 3
     
     def unblock(self):
@@ -256,9 +256,9 @@ class trafficLight(Agent):
             self.blocked_steps = 3
         if self.changed_color is True:
             if self.state is states.GREEN:
-                self.model.instructions.append({"id":self.id, "instruction": f'set-light-GREEN'})
+                self.model.instructions.append({"id":self.id, "method": f'set-light', "params":'GREEN'})
             else:      
-                self.model.instructions.append({"id":self.id, "instruction": f'set-light-YELLOW'})
+                self.model.instructions.append({"id":self.id, "method": f'set-light', "params":'YELLOW'})
             
 
 
@@ -344,7 +344,7 @@ class trafficSimulation(Model):
             idx, (orientation, coords) = random.choice([(index, x) for index, x in enumerate(zip(direction.lst,self.spawnpoints))])
             anyCar = any([isinstance(agent, carAgent) for agent in self.grid.iter_neighbors(coords, False, True, 0)])
             if not anyCar:
-                self.instructions.append({"id":self.id, "instruction":f'spawn-car-{SpawnPoints.to_string(coords)}'})
+                self.instructions.append({"id":self.id, "method":f'spawn-car', "params":SpawnPoints.to_string(coords)})
                 car = carAgent(self.id, coords, orientation, self)
                 self.grid.place_agent(car,coords)
                 self.cars_schedule.add(car)
