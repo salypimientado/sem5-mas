@@ -185,6 +185,7 @@ class carAgent(Agent):
                 if self.steps_until_turn == 0:
                     self.direction = self.turn_direction
                     self.turn_direction = None
+                    self.steps_until_turn = None
                 else:
                     self.steps_until_turn -= 1
             if under_light:
@@ -197,6 +198,12 @@ class carAgent(Agent):
                 if not self.done:
                     self.model.kill_agents.append(self)
                 self.done = True
+                self.model.instructions.append({"id":self.id, "instruction":"destroy"})
+            else:
+                if self.steps_until_turn == 0:
+                    self.model.instructions.append({"id":self.id, "instruction": f'advance-rotate-{direction_to_string(self.turn_direction)}'})
+                else:
+                    self.model.instructions.append({"id":self.id, "instruction": "advance"})
                 
         
     def advance(self):
@@ -217,10 +224,12 @@ class trafficLight(Agent):
         self.state = states.YELLOW
         self.blocked_steps = 0
         self.reset_state = False
+        self.changed_color = False
     
 
     def setRed(self):
         self.state = states.RED
+        self.model.instructions.append({"id":self.id, "instruction": f'set-light-RED'})
         self.blocked_steps = 3
     
     def unblock(self):
@@ -234,13 +243,23 @@ class trafficLight(Agent):
             return
         if self.reset_state:
             self.state = states.YELLOW
+            self.changed_color = True
             self.reset_state = False
         car = any([isinstance(agent, carAgent) for agent in self.model.grid.iter_neighbors(self.coords, False, True, 0)])
         if car:
             for light in get_other_lights(self.id, self.model):
                 light.setRed()
+            
+            if not self.state == states.GREEN:
+                self.changed_color = True
             self.state = states.GREEN
             self.blocked_steps = 3
+        if self.changed_color is True:
+            if self.state is states.GREEN:
+                self.model.instructions.append({"id":self.id, "instruction": f'set-light-GREEN'})
+            else:      
+                self.model.instructions.append({"id":self.id, "instruction": f'set-light-YELLOW'})
+            
 
 
 # In[ ]:
@@ -263,7 +282,23 @@ class TrafficScheduler(BaseScheduler):
         self.steps += 1
         self.time += 1 
         
-
+class SpawnPoints:
+    UP = (10,5)
+    DOWN = (1,4)
+    LEFT = (6,0)
+    RIGHT = (5,9)
+    
+    @staticmethod
+    def to_string(pos):
+        if pos is SpawnPoints.UP:
+            return "UP"
+        elif pos is SpawnPoints.DOWN:
+            return "DOWN"
+        elif pos is SpawnPoints.LEFT:
+            return "LEFT"
+        else:
+            return "RIGHT"
+        
 
 class trafficSimulation(Model):
     def __init__(self, spawn_speed):
@@ -273,8 +308,9 @@ class trafficSimulation(Model):
         self.cars_schedule = SimultaneousActivation(self)
         self.grid = MultiGrid(11,10,False)
         self.id = 0
-        self.spawnpoints = [(10,5),(1,4),(6,0),(5,9)]
+        self.spawnpoints = [SpawnPoints.UP, SpawnPoints.DOWN, SpawnPoints.LEFT, SpawnPoints.RIGHT]
         self.kill_agents = []
+        self.instructions = []
         
         self.datacollector = DataCollector(
             model_reporters={"Grid": get_grid})
@@ -288,10 +324,16 @@ class trafficSimulation(Model):
             self.traffic_lights_schedule.add(light)
             
     def get_data(self):
+        '''
         traffic_lights = [{"coords":coords_to_pos(agent.coords), "state": state_to_string(agent.state)} for agent in get_other_lights(-1,self)]
         cars = [{"id": agent.id, "direction":direction_to_string(agent.direction),"coords": coords_to_pos(agent.coords),"turn_status": rotation_status(agent)}for agent in self.cars_schedule.agents]
         #nt(traffic_lights, cars)
+        
         return traffic_lights, cars
+        '''
+        res = [x for x in self.instructions]
+        self.instructions = []
+        return res
     
     def step(self):
         self.datacollector.collect(self)
@@ -299,9 +341,10 @@ class trafficSimulation(Model):
         self.cars_schedule.step()
         
         if self.counter == self.spawn_speed-1 and random.random() > 0.5:
-            orientation, coords = random.choice([x for x in zip(direction.lst,self.spawnpoints)])
+            idx, (orientation, coords) = random.choice([(index, x) for index, x in enumerate(zip(direction.lst,self.spawnpoints))])
             anyCar = any([isinstance(agent, carAgent) for agent in self.grid.iter_neighbors(coords, False, True, 0)])
             if not anyCar:
+                self.instructions.append({"id":self.id, "instruction":f'spawn-car-{SpawnPoints.to_string(coords)}'})
                 car = carAgent(self.id, coords, orientation, self)
                 self.grid.place_agent(car,coords)
                 self.cars_schedule.add(car)
@@ -356,6 +399,6 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 @app.route("/")
 def get_next_version():
     m.step()
-    traffic_lights, cars = m.get_data()
-    return {"traffic_lights":traffic_lights, "cars": cars}
+    instructions = m.get_data()
+    return {"instructions":instructions}
 
